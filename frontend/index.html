@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskStream | FastAPI & PostgreSQL Dashboard</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- CSS Styles -->
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="background-globes">
+        <div class="globe globe-1"></div>
+        <div class="globe globe-2"></div>
+    </div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="navbar">
+            <div class="brand">
+                <div class="logo-icon">
+                    <i class="fa-solid fa-layer-group"></i>
+                </div>
+                <div class="brand-text">
+                    <h1>TaskStream</h1>
+                    <span class="sub-text">FastAPI & PostgreSQL Backend</span>
+                </div>
+            </div>
+
+            <div class="nav-actions">
+                <div class="health-pill" id="healthPill" title="Backend DB Status">
+                    <span class="status-dot green"></span>
+                    <span id="healthText">System Online</span>
+                </div>
+                <button class="btn btn-primary" id="openCreateModalBtn">
+                    <i class="fa-solid fa-plus"></i> New Task
+                </button>
+            </div>
+        </header>
+
+        <!-- Stats Section -->
+        <section class="stats-grid">
+            <div class="stat-card" data-filter="all">
+                <div class="stat-icon icon-total">
+                    <i class="fa-solid fa-list-check"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-label">Total Tasks</span>
+                    <h3 class="stat-value" id="statTotal">0</h3>
+                </div>
+            </div>
+            <div class="stat-card" data-filter="pending">
+                <div class="stat-icon icon-pending">
+                    <i class="fa-solid fa-clock"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-label">Pending</span>
+                    <h3 class="stat-value" id="statPending">0</h3>
+                </div>
+            </div>
+            <div class="stat-card" data-filter="in_progress">
+                <div class="stat-icon icon-progress">
+                    <i class="fa-solid fa-spinner"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-label">In Progress</span>
+                    <h3 class="stat-value" id="statInProgress">0</h3>
+                </div>
+            </div>
+            <div class="stat-card" data-filter="completed">
+                <div class="stat-icon icon-completed">
+                    <i class="fa-solid fa-circle-check"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-label">Completed</span>
+                    <h3 class="stat-value" id="statCompleted">0</h3>
+                </div>
+            </div>
+            <div class="stat-card" data-priority="high">
+                <div class="stat-icon icon-high">
+                    <i class="fa-solid fa-fire"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-label">High Priority</span>
+                    <h3 class="stat-value" id="statHigh">0</h3>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Content & Filters -->
+        <main class="content-wrapper">
+            <div class="toolbar">
+                <div class="search-box">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" id="searchInput" placeholder="Search tasks by title or description...">
+                </div>
+
+                <div class="filter-controls">
+                    <div class="tab-group" id="statusTabs">
+                        <button class="tab-btn active" data-status="">All</button>
+                        <button class="tab-btn" data-status="pending">Pending</button>
+                        <button class="tab-btn" data-status="in_progress">In Progress</button>
+                        <button class="tab-btn" data-status="completed">Completed</button>
+                    </div>
+
+                    <select id="priorityFilter" class="select-input">
+                        <option value="">All Priorities</option>
+                        <option value="high">High Priority</option>
+                        <option value="medium">Medium Priority</option>
+                        <option value="low">Low Priority</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Task List / Grid -->
+            <div class="task-grid" id="taskGrid">
+                <!-- Skeleton Loading Cards -->
+                <div class="skeleton-card"></div>
+                <div class="skeleton-card"></div>
+                <div class="skeleton-card"></div>
+            </div>
+
+            <div class="empty-state hidden" id="emptyState">
+                <i class="fa-regular fa-folder-open empty-icon"></i>
+                <h3>No tasks found</h3>
+                <p>Create a new task or adjust your search filters.</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- Task Modal (Create & Edit) -->
+    <div class="modal-backdrop hidden" id="taskModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h2 id="modalTitle">Create New Task</h2>
+                <button class="close-btn" id="closeModalBtn">&times;</button>
+            </div>
+            <form id="taskForm">
+                <input type="hidden" id="taskId">
+                <div class="form-group">
+                    <label for="taskTitleInput">Task Title *</label>
+                    <input type="text" id="taskTitleInput" required placeholder="e.g. Implement PostgreSQL Migrations">
+                </div>
+
+                <div class="form-group">
+                    <label for="taskDescInput">Description</label>
+                    <textarea id="taskDescInput" rows="3" placeholder="Provide details about this task..."></textarea>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="taskPriorityInput">Priority</label>
+                        <select id="taskPriorityInput" class="select-input">
+                            <option value="low">Low</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="high">High</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="taskStatusInput">Status</label>
+                        <select id="taskStatusInput" class="select-input">
+                            <option value="pending" selected>Pending</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="completed">Completed</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="saveTaskBtn">
+                        <i class="fa-solid fa-check"></i> Save Task
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Application Script -->
+    <script src="js/app.js"></script>
+</body>
+</html>
