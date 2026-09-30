@@ -39,10 +39,9 @@ pipeline {
         SONAR_PROJECT_NAME = "Test Code"
         SONAR_PROJECT_KEY = "Test-Code"
 
-        // Jenkins -> Manage Jenkins -> System
         SONAR_SERVER = "sonar-server"
 
-        // Jenkins Credential ID
+        // Jenkins credential containing SonarQube token
         SONAR_TOKEN_CREDENTIAL = "sonar-token"
     }
 
@@ -72,6 +71,26 @@ pipeline {
 
                 echo ""
                 echo "GitHub Checkout Completed Successfully"
+
+                sh '''
+                    echo ""
+                    echo "=========================================="
+                    echo "Repository Structure"
+                    echo "=========================================="
+
+                    pwd
+                    echo ""
+
+                    ls -la
+
+                    echo ""
+                    echo "Application directory:"
+                    ls -la app || true
+
+                    echo ""
+                    echo "Tests directory:"
+                    ls -la tests || true
+                '''
             }
         }
 
@@ -84,32 +103,17 @@ pipeline {
             steps {
 
                 echo "=========================================="
-                echo "Code Coverage / Unit Tests"
+                echo "Python Unit Tests + Code Coverage"
                 echo "=========================================="
 
                 sh '''
                     set -e
 
-                    echo "Current Directory:"
-                    pwd
+                    echo "=========================================="
+                    echo "Python Version"
+                    echo "=========================================="
 
-                    echo ""
-                    echo "Repository Files:"
-                    ls -la
-
-                    # ------------------------------------------------
-                    # Check backend directory
-                    # ------------------------------------------------
-                    if [ ! -d "backend" ]; then
-
-                        echo ""
-                        echo "WARNING: backend directory not found."
-                        echo "Skipping Python code coverage."
-
-                        exit 0
-                    fi
-
-                    cd backend
+                    python3 --version
 
                     echo ""
                     echo "=========================================="
@@ -120,93 +124,70 @@ pipeline {
 
                     echo ""
                     echo "=========================================="
-                    echo "Searching for Unit Test Files"
+                    echo "Checking Test Files"
                     echo "=========================================="
 
-                    TEST_FILES=$(find . -type f \\( \
-                        -name "test_*.py" \
-                        -o -name "*_test.py" \
-                    \\) \
-                    ! -path "./venv/*" \
-                    ! -path "./.venv/*" \
-                    ! -path "./env/*" \
-                    ! -path "./.env/*" \
-                    | sort || true)
-
-                    if [ -n "$TEST_FILES" ]; then
-
-                        echo ""
-                        echo "Test files found:"
-                        echo "$TEST_FILES"
-
-                        echo ""
-                        echo "=========================================="
-                        echo "Running Unit Tests"
-                        echo "=========================================="
-
-                        python3 -m pytest \
-                            --cov=. \
-                            --cov-report=term \
-                            --cov-report=xml:coverage.xml \
-                            --cov-report=html:htmlcov
-
-                        echo ""
-                        echo "=========================================="
-                        echo "Unit Tests Completed"
-                        echo "=========================================="
-
-                        echo ""
-                        echo "=========================================="
-                        echo "Coverage Report"
-                        echo "=========================================="
-
-                        if [ -f "coverage.xml" ]; then
-
-                            echo "Coverage XML found:"
-                            ls -lh coverage.xml
-
-                            echo ""
-                            echo "Coverage XML generated successfully."
-
-                        else
-
-                            echo ""
-                            echo "ERROR: coverage.xml was not generated."
-
-                            exit 1
-                        fi
-
-                        if [ -d "htmlcov" ]; then
-
-                            echo ""
-                            echo "HTML coverage report generated:"
-                            ls -ld htmlcov
-
-                        fi
-
-                    else
-
-                        echo ""
-                        echo "=========================================="
-                        echo "NO UNIT TEST FILES FOUND"
-                        echo "=========================================="
-
-                        echo "Expected test file names:"
-                        echo "  test_*.py"
-                        echo "  *_test.py"
-
-                        echo ""
-                        echo "No unit tests were found."
-                        echo "Coverage will not be generated."
-
+                    if [ ! -d "tests" ]; then
+                        echo "ERROR: tests directory not found."
+                        exit 1
                     fi
 
-                    cd ..
+                    TEST_FILES=$(find tests -type f \\( \
+                        -name "test_*.py" \
+                        -o -name "*_test.py" \
+                    \\) | sort)
+
+                    if [ -z "$TEST_FILES" ]; then
+                        echo "ERROR: No Python test files found."
+                        exit 1
+                    fi
+
+                    echo ""
+                    echo "Test files found:"
+                    echo "$TEST_FILES"
+
+                    echo ""
+                    echo "=========================================="
+                    echo "Running Unit Tests"
+                    echo "=========================================="
+
+                    python3 -m pytest \
+                        tests/ \
+                        --cov=app \
+                        --cov-report=term-missing \
+                        --cov-report=xml:coverage.xml \
+                        --cov-report=html:htmlcov
+
+                    echo ""
+                    echo "=========================================="
+                    echo "UNIT TESTS COMPLETED"
+                    echo "=========================================="
+
+                    echo ""
+                    echo "=========================================="
+                    echo "Checking Coverage XML"
+                    echo "=========================================="
+
+                    if [ ! -f "coverage.xml" ]; then
+                        echo "ERROR: coverage.xml was not generated."
+                        exit 1
+                    fi
+
+                    ls -lh coverage.xml
+
+                    echo ""
+                    echo "HTML coverage directory:"
+                    ls -ld htmlcov
+
+                    echo ""
+                    echo "=========================================="
+                    echo "CODE COVERAGE COMPLETED"
+                    echo "=========================================="
                 '''
 
                 archiveArtifacts(
-                    artifacts: 'backend/coverage.xml,backend/htmlcov/**',
-                    allowEmptyArchive: true
+                    artifacts: 'coverage.xml,htmlcov/**',
+                    allowEmptyArchive: false
                 )
             }
         }
@@ -246,50 +227,34 @@ pipeline {
 
                             echo ""
                             echo "=========================================="
-                            echo "Starting SonarQube Scan"
+                            echo "Checking Coverage"
                             echo "=========================================="
 
-                            cd backend
-
-                            # ------------------------------------------------
-                            # Check Coverage XML
-                            # ------------------------------------------------
-                            if [ -f "coverage.xml" ]; then
-
-                                echo ""
-                                echo "Coverage XML found."
-                                echo "Importing Python coverage into SonarQube."
-
-                                "$SCANNER_HOME/bin/sonar-scanner" \
-                                    -Dsonar.projectName="$SONAR_PROJECT_NAME" \
-                                    -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
-                                    -Dsonar.sources=. \
-                                    -Dsonar.host.url="$SONAR_HOST_URL" \
-                                    -Dsonar.token="$SONAR_AUTH_TOKEN" \
-                                    -Dsonar.branch.name="$TARGET_BRANCH" \
-                                    -Dsonar.python.coverage.reportPaths=coverage.xml
-
-                            else
-
-                                echo ""
-                                echo "WARNING: coverage.xml not found."
-                                echo "Running SonarQube without coverage."
-
-                                "$SCANNER_HOME/bin/sonar-scanner" \
-                                    -Dsonar.projectName="$SONAR_PROJECT_NAME" \
-                                    -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
-                                    -Dsonar.sources=. \
-                                    -Dsonar.host.url="$SONAR_HOST_URL" \
-                                    -Dsonar.token="$SONAR_AUTH_TOKEN" \
-                                    -Dsonar.branch.name="$TARGET_BRANCH"
-
+                            if [ ! -f "coverage.xml" ]; then
+                                echo "ERROR: coverage.xml not found."
+                                exit 1
                             fi
 
-                            cd ..
+                            ls -lh coverage.xml
 
                             echo ""
                             echo "=========================================="
-                            echo "SonarQube Analysis Completed"
+                            echo "Starting SonarQube Scanner"
+                            echo "=========================================="
+
+                            "$SCANNER_HOME/bin/sonar-scanner" \
+                                -Dsonar.projectName="$SONAR_PROJECT_NAME" \
+                                -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
+                                -Dsonar.sources=app \
+                                -Dsonar.tests=tests \
+                                -Dsonar.host.url="$SONAR_HOST_URL" \
+                                -Dsonar.token="$SONAR_AUTH_TOKEN" \
+                                -Dsonar.branch.name="$TARGET_BRANCH" \
+                                -Dsonar.python.coverage.reportPaths=coverage.xml
+
+                            echo ""
+                            echo "=========================================="
+                            echo "SONARQUBE ANALYSIS COMPLETED"
                             echo "=========================================="
                         '''
                     }
@@ -328,9 +293,6 @@ pipeline {
     // ============================================================
     post {
 
-        // ============================================================
-        // SUCCESS
-        // ============================================================
         success {
 
             echo """
@@ -347,18 +309,15 @@ pipeline {
             SonarQube Key:
             ${SONAR_PROJECT_KEY}
 
-            Code Coverage   : COMPLETED / NO TESTS FOUND
-            SonarQube Scan   : PASSED
+            Unit Tests      : PASSED
+            Code Coverage   : GENERATED
+            SonarQube Scan  : PASSED
             Quality Gate    : PASSED
 
             ==========================================
             """
         }
 
-
-        // ============================================================
-        // FAILURE
-        // ============================================================
         failure {
 
             echo """
