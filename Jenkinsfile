@@ -34,7 +34,7 @@ pipeline {
 
         // SONARQUBE
         SCANNER_HOME       = tool 'sonar-scanner'
-        SONAR_PROJECT_NAME = "Test Code"
+        SONAR_PROJECT_NAME = "Testing Code"
         SONAR_PROJECT_KEY  = "Test-Code"
 
         // Jenkins -> Manage Jenkins -> System -> SonarQube servers
