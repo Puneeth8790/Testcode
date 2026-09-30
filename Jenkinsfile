@@ -20,7 +20,7 @@ pipeline {
         SCANNER_HOME = tool 'sonar-scanner'
 
         SONAR_SERVER = "sonar-server"
-        SONAR_TOKEN_CREDENTIAL = "Sonar-Test"
+        SONAR_TOKEN_CREDENTIAL = "sonar-test"
 
         SONAR_PROJECT_NAME = "Test Code"
         SONAR_PROJECT_KEY = "Test-Code"
