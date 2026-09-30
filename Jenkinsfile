@@ -39,16 +39,19 @@ pipeline {
         SONAR_PROJECT_NAME = "Test Code"
         SONAR_PROJECT_KEY = "Test-Code"
 
+        // Jenkins -> Manage Jenkins -> System
         SONAR_SERVER = "sonar-server"
 
-        // Jenkins credential containing SonarQube token
+        // Jenkins Credentials
         SONAR_TOKEN_CREDENTIAL = "sonar-token"
     }
+
 
     // ============================================================
     // STAGES
     // ============================================================
     stages {
+
 
         // ============================================================
         // 1. GITHUB CHECKOUT
@@ -72,15 +75,16 @@ pipeline {
                 echo ""
                 echo "GitHub Checkout Completed Successfully"
 
+                echo ""
+                echo "=========================================="
+                echo "Repository Structure"
+                echo "=========================================="
+
                 sh '''
-                    echo ""
-                    echo "=========================================="
-                    echo "Repository Structure"
-                    echo "=========================================="
-
                     pwd
-                    echo ""
 
+                    echo ""
+                    echo "Root files:"
                     ls -la
 
                     echo ""
@@ -115,6 +119,42 @@ pipeline {
 
                     python3 --version
 
+
+                    echo ""
+                    echo "=========================================="
+                    echo "Checking Required Files"
+                    echo "=========================================="
+
+                    if [ ! -f requirements.txt ]; then
+
+                        echo "ERROR: requirements.txt not found."
+                        exit 1
+
+                    fi
+
+                    if [ ! -d app ]; then
+
+                        echo "ERROR: app directory not found."
+                        exit 1
+
+                    fi
+
+                    if [ ! -d tests ]; then
+
+                        echo "ERROR: tests directory not found."
+                        exit 1
+
+                    fi
+
+
+                    echo ""
+                    echo "=========================================="
+                    echo "Installing Application Dependencies"
+                    echo "=========================================="
+
+                    python3 -m pip install --user -r requirements.txt
+
+
                     echo ""
                     echo "=========================================="
                     echo "Installing Test Dependencies"
@@ -122,29 +162,46 @@ pipeline {
 
                     python3 -m pip install --user pytest pytest-cov
 
+
                     echo ""
                     echo "=========================================="
-                    echo "Checking Test Files"
+                    echo "Installed FastAPI Check"
                     echo "=========================================="
 
-                    if [ ! -d "tests" ]; then
-                        echo "ERROR: tests directory not found."
-                        exit 1
-                    fi
+                    python3 -c "import fastapi; print('FastAPI version:', fastapi.__version__)"
+
+
+                    echo ""
+                    echo "=========================================="
+                    echo "Application Files"
+                    echo "=========================================="
+
+                    find app -maxdepth 2 -type f | sort
+
+
+                    echo ""
+                    echo "=========================================="
+                    echo "Test Files"
+                    echo "=========================================="
 
                     TEST_FILES=$(find tests -type f \\( \
                         -name "test_*.py" \
                         -o -name "*_test.py" \
                     \\) | sort)
 
+
                     if [ -z "$TEST_FILES" ]; then
+
                         echo "ERROR: No Python test files found."
                         exit 1
+
                     fi
+
 
                     echo ""
                     echo "Test files found:"
                     echo "$TEST_FILES"
+
 
                     echo ""
                     echo "=========================================="
@@ -158,32 +215,49 @@ pipeline {
                         --cov-report=xml:coverage.xml \
                         --cov-report=html:htmlcov
 
+
                     echo ""
                     echo "=========================================="
                     echo "UNIT TESTS COMPLETED"
                     echo "=========================================="
+
 
                     echo ""
                     echo "=========================================="
                     echo "Checking Coverage XML"
                     echo "=========================================="
 
-                    if [ ! -f "coverage.xml" ]; then
+                    if [ ! -f coverage.xml ]; then
+
                         echo "ERROR: coverage.xml was not generated."
                         exit 1
+
                     fi
 
                     ls -lh coverage.xml
 
+
                     echo ""
-                    echo "HTML coverage directory:"
+                    echo "=========================================="
+                    echo "Checking HTML Coverage"
+                    echo "=========================================="
+
+                    if [ ! -d htmlcov ]; then
+
+                        echo "ERROR: htmlcov directory was not generated."
+                        exit 1
+
+                    fi
+
                     ls -ld htmlcov
+
 
                     echo ""
                     echo "=========================================="
                     echo "CODE COVERAGE COMPLETED"
                     echo "=========================================="
                 '''
+
 
                 archiveArtifacts(
                     artifacts: 'coverage.xml,htmlcov/**',
@@ -225,17 +299,21 @@ pipeline {
                             echo "Branch       : $TARGET_BRANCH"
                             echo "Sonar URL    : $SONAR_HOST_URL"
 
+
                             echo ""
                             echo "=========================================="
-                            echo "Checking Coverage"
+                            echo "Checking Coverage Report"
                             echo "=========================================="
 
-                            if [ ! -f "coverage.xml" ]; then
+                            if [ ! -f coverage.xml ]; then
+
                                 echo "ERROR: coverage.xml not found."
                                 exit 1
+
                             fi
 
                             ls -lh coverage.xml
+
 
                             echo ""
                             echo "=========================================="
@@ -251,6 +329,7 @@ pipeline {
                                 -Dsonar.token="$SONAR_AUTH_TOKEN" \
                                 -Dsonar.branch.name="$TARGET_BRANCH" \
                                 -Dsonar.python.coverage.reportPaths=coverage.xml
+
 
                             echo ""
                             echo "=========================================="
@@ -271,7 +350,7 @@ pipeline {
             steps {
 
                 echo "=========================================="
-                echo "SonarQube Quality Gate"
+                echo "Waiting for SonarQube Quality Gate"
                 echo "=========================================="
 
                 timeout(time: 5, unit: 'MINUTES') {
@@ -293,6 +372,9 @@ pipeline {
     // ============================================================
     post {
 
+        // ============================================================
+        // SUCCESS
+        // ============================================================
         success {
 
             echo """
@@ -318,6 +400,10 @@ pipeline {
             """
         }
 
+
+        // ============================================================
+        // FAILURE
+        // ============================================================
         failure {
 
             echo """
