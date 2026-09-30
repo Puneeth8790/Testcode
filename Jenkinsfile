@@ -99,9 +99,9 @@ pipeline {
 
                             echo "=========================================="
                             echo "SonarQube Analysis"
-                            echo "Project: Test Code"
-                            echo "Key: Test-Code"
-                            echo "Branch: feature"
+                            echo "Project: $SONAR_PROJECT_NAME"
+                            echo "Key: $SONAR_PROJECT_KEY"
+                            echo "Branch checked out: $TARGET_BRANCH"
                             echo "=========================================="
 
                             echo "SonarQube URL:"
@@ -118,6 +118,9 @@ pipeline {
 
                             echo "Starting SonarQube scan..."
 
+                            # NOTE: sonar.branch.name is NOT used because it requires
+                            # SonarQube Developer Edition or above. Community Edition
+                            # analyzes the checked-out branch as the main branch.
                             "$SCANNER_HOME/bin/sonar-scanner" \
                                 -Dsonar.projectName="$SONAR_PROJECT_NAME" \
                                 -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
@@ -125,7 +128,6 @@ pipeline {
                                 -Dsonar.tests=tests \
                                 -Dsonar.host.url="$SONAR_HOST_URL" \
                                 -Dsonar.token="$SONAR_AUTH_TOKEN" \
-                                -Dsonar.branch.name="$TARGET_BRANCH" \
                                 -Dsonar.python.coverage.reportPaths=coverage.xml
 
                             echo "=========================================="
