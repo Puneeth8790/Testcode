@@ -267,81 +267,77 @@ pipeline {
         }
 
 
-        // ============================================================
-        // 3. SONARQUBE ANALYSIS
-        // ============================================================
-        stage('3. SonarQube Analysis') {
+      stage('3. SonarQube Analysis') {
 
-            steps {
+    steps {
 
-                echo "=========================================="
-                echo "SonarQube Analysis"
-                echo "=========================================="
+        withSonarQubeEnv('sonar-server') {
 
-                withSonarQubeEnv("${SONAR_SERVER}") {
+            withCredentials([
+                string(
+                    credentialsId: 'sonar-token',
+                    variable: 'SONAR_AUTH_TOKEN'
+                )
+            ]) {
 
-                    withCredentials([
-                        string(
-                            credentialsId: "${SONAR_TOKEN_CREDENTIAL}",
-                            variable: 'SONAR_AUTH_TOKEN'
-                        )
-                    ]) {
+                sh '''
+                    set -e
 
-                        sh '''
-                            set -e
+                    echo "=========================================="
+                    echo "SonarQube Analysis"
+                    echo "=========================================="
 
-                            echo "=========================================="
-                            echo "SonarQube Configuration"
-                            echo "=========================================="
+                    echo "Project Name : Test Code"
+                    echo "Project Key  : Test-Code"
+                    echo "Branch       : feature"
+                    echo "Source       : app"
+                    echo "Tests        : tests"
 
-                            echo "Project Name : $SONAR_PROJECT_NAME"
-                            echo "Project Key  : $SONAR_PROJECT_KEY"
-                            echo "Branch       : $TARGET_BRANCH"
-                            echo "Sonar URL    : $SONAR_HOST_URL"
+                    echo ""
+                    echo "Checking coverage.xml..."
 
+                    if [ ! -f coverage.xml ]; then
+                        echo "ERROR: coverage.xml not found."
+                        exit 1
+                    fi
 
-                            echo ""
-                            echo "=========================================="
-                            echo "Checking Coverage Report"
-                            echo "=========================================="
+                    ls -lh coverage.xml
 
-                            if [ ! -f coverage.xml ]; then
+                    echo ""
+                    echo "Checking SonarScanner..."
 
-                                echo "ERROR: coverage.xml not found."
-                                exit 1
+                    if [ ! -f "$SCANNER_HOME/bin/sonar-scanner" ]; then
+                        echo "ERROR: SonarScanner not found."
+                        echo "SCANNER_HOME=$SCANNER_HOME"
+                        exit 1
+                    fi
 
-                            fi
+                    "$SCANNER_HOME/bin/sonar-scanner" --version
 
-                            ls -lh coverage.xml
+                    echo ""
+                    echo "=========================================="
+                    echo "Running SonarQube Scanner"
+                    echo "=========================================="
 
+                    "$SCANNER_HOME/bin/sonar-scanner" \
+                        -Dsonar.projectName="Test Code" \
+                        -Dsonar.projectKey="Test-Code" \
+                        -Dsonar.sources=app \
+                        -Dsonar.tests=tests \
+                        -Dsonar.host.url="$SONAR_HOST_URL" \
+                        -Dsonar.token="$SONAR_AUTH_TOKEN" \
+                        -Dsonar.branch.name="feature" \
+                        -Dsonar.python.coverage.reportPaths=coverage.xml
 
-                            echo ""
-                            echo "=========================================="
-                            echo "Starting SonarQube Scanner"
-                            echo "=========================================="
-
-                            "$SCANNER_HOME/bin/sonar-scanner" \
-                                -Dsonar.projectName="$SONAR_PROJECT_NAME" \
-                                -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
-                                -Dsonar.sources=app \
-                                -Dsonar.tests=tests \
-                                -Dsonar.host.url="$SONAR_HOST_URL" \
-                                -Dsonar.token="$SONAR_AUTH_TOKEN" \
-                                -Dsonar.branch.name="$TARGET_BRANCH" \
-                                -Dsonar.python.coverage.reportPaths=coverage.xml
-
-
-                            echo ""
-                            echo "=========================================="
-                            echo "SONARQUBE ANALYSIS COMPLETED"
-                            echo "=========================================="
-                        '''
-                    }
-                }
+                    echo ""
+                    echo "=========================================="
+                    echo "SONARQUBE ANALYSIS COMPLETED"
+                    echo "=========================================="
+                '''
             }
         }
-
-
+    }
+}
         // ============================================================
         // 4. SONARQUBE QUALITY GATE
         // ============================================================
