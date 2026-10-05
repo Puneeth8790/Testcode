@@ -333,46 +333,33 @@ pipeline {
         }
 
 
-        // =========================================================
-        // 9. OWASP FILESYSTEM SCAN
-        // =========================================================
+      stage('OWASP FS Scan') {
+    steps {
+        script {
+            def dependencyCheckHome = tool 'dependency-check'
 
-        stage('9. OWASP FS Scan') {
-            steps {
+            sh """
+                set -e
 
                 echo "=========================================="
-                echo "OWASP Filesystem Dependency Scan"
+                echo "OWASP Dependency-Check"
                 echo "=========================================="
 
-                sh '''
-                    set -e
+                "${dependencyCheckHome}/bin/dependency-check.sh" \
+                    --project "Test-Code" \
+                    --scan . \
+                    --format HTML \
+                    --format JSON \
+                    --out dependency-check-report
 
-                    if ! command -v dependency-check.sh >/dev/null 2>&1; then
-
-                        echo "ERROR: OWASP Dependency-Check is not installed."
-                        echo "Please configure dependency-check on the Jenkins agent."
-
-                        exit 1
-                    fi
-
-                    dependency-check.sh \
-                        --project "Test-Code" \
-                        --scan . \
-                        --format HTML \
-                        --format JSON \
-                        --out dependency-check-report
-
-                    echo "OWASP Dependency-Check completed"
-
-                    ls -lh dependency-check-report/
-                '''
-
-                archiveArtifacts(
-                    artifacts: 'dependency-check-report/**',
-                    allowEmptyArchive: false
-                )
-            }
+                echo "OWASP Dependency-Check completed successfully."
+            """
         }
+
+        archiveArtifacts artifacts: 'dependency-check-report/**',
+                         allowEmptyArchive: false
+    }
+}
 
 
         // =========================================================
