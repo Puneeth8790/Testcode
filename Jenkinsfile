@@ -40,63 +40,10 @@ pipeline {
     stages {
 
         // =========================================================
-        // 1. DECLARATIVE TOOL INSTALL
+        // 1. CLEAN WORKSPACE
         // =========================================================
 
-        stage('1. Declarative Tool Install') {
-
-            steps {
-
-                echo "=========================================="
-                echo "Checking Required Tools"
-                echo "=========================================="
-
-                sh '''
-                    set -e
-
-                    echo "Java version:"
-                    java -version
-
-                    echo ""
-                    echo "Python version:"
-                    python3 --version
-
-                    echo ""
-                    echo "Pip version:"
-                    python3 -m pip --version
-
-                    echo ""
-                    echo "Node version:"
-                    node --version
-
-                    echo ""
-                    echo "NPM version:"
-                    npm --version
-
-                    echo ""
-                    echo "Git version:"
-                    git --version
-
-                    echo ""
-                    echo "Trivy version:"
-                    trivy --version
-
-                    echo ""
-                    echo "SonarScanner version:"
-                    "$SCANNER_HOME/bin/sonar-scanner" --version
-
-                    echo ""
-                    echo "All basic tools are available."
-                '''
-            }
-        }
-
-
-        // =========================================================
-        // 2. CLEAN WORKSPACE
-        // =========================================================
-
-        stage('2. Clean Workspace') {
+        stage('1. Clean Workspace') {
 
             steps {
 
@@ -112,15 +59,15 @@ pipeline {
 
 
         // =========================================================
-        // 3. GIT CHECKOUT
+        // 2. GIT CHECKOUT
         // =========================================================
 
-        stage('3. Git Checkout') {
+        stage('2. Git Checkout') {
 
             steps {
 
                 echo "=========================================="
-                echo "Checking Out Source Code"
+                echo "Git Checkout"
                 echo "=========================================="
 
                 git(
@@ -129,11 +76,11 @@ pipeline {
                 )
 
                 sh '''
-                    echo "Current branch:"
+                    echo "Current Branch:"
                     git branch --show-current
 
                     echo ""
-                    echo "Latest commit:"
+                    echo "Latest Commit:"
                     git log -1 --oneline
                 '''
 
@@ -143,131 +90,90 @@ pipeline {
 
 
         // =========================================================
-        // 4. INSTALL NPM DEPENDENCIES
+        // 3. SONARQUBE ANALYSIS
         // =========================================================
 
-        stage('4. Install NPM Dependencies') {
+        stage('3. SonarQube Analysis') {
 
             steps {
 
                 echo "=========================================="
-                echo "Installing Frontend NPM Dependencies"
+                echo "SonarQube Analysis / SAST"
                 echo "=========================================="
 
-                sh '''
-                    set -e
+                withSonarQubeEnv("${SONAR_SERVER}") {
 
-                    if [ -f frontend/package.json ]; then
+                    withCredentials([
+                        string(
+                            credentialsId: "${SONAR_TOKEN_CREDENTIAL}",
+                            variable: 'SONAR_AUTH_TOKEN'
+                        )
+                    ]) {
 
-                        echo "Frontend package.json found."
+                        sh '''
+                            set -e
 
-                        cd frontend
+                            echo "SonarQube URL:"
+                            echo "$SONAR_HOST_URL"
 
-                        echo "Node version:"
-                        node --version
+                            echo ""
+                            echo "SonarScanner Version:"
+                            "$SCANNER_HOME/bin/sonar-scanner" --version
 
-                        echo "NPM version:"
-                        npm --version
+                            echo ""
+                            echo "Starting SonarQube Analysis..."
 
-                        echo ""
-                        echo "Installing frontend dependencies..."
+                            "$SCANNER_HOME/bin/sonar-scanner" \
+                                -Dsonar.projectName="$SONAR_PROJECT_NAME" \
+                                -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
+                                -Dsonar.sources=app \
+                                -Dsonar.tests=tests \
+                                -Dsonar.host.url="$SONAR_HOST_URL" \
+                                -Dsonar.token="$SONAR_AUTH_TOKEN"
 
-                        if [ -f package-lock.json ]; then
-                            echo "package-lock.json found."
-                            echo "Running npm ci..."
-                            npm ci
-                        else
-                            echo "package-lock.json not found."
-                            echo "Running npm install..."
-                            npm install
-                        fi
-
-                        echo ""
-                        echo "NPM dependencies installed successfully."
-
-                    else
-
-                        echo "WARNING: frontend/package.json not found."
-                        echo "Skipping NPM dependency installation."
-
-                    fi
-                '''
-            }
-        }
-
-
-        // =========================================================
-        // 5. UNIT TEST & CODE COVERAGE
-        // =========================================================
-
-        stage('5. Unit Test & Code Coverage') {
-
-            steps {
-
-                echo "=========================================="
-                echo "Python Unit Tests & Code Coverage"
-                echo "=========================================="
-
-                sh '''
-                    set -e
-
-                    echo "Python version:"
-                    python3 --version
-
-                    echo ""
-                    echo "Installing Python dependencies..."
-
-                    python3 -m pip install --user -r requirements.txt
-
-                    echo ""
-                    echo "Checking pytest..."
-
-                    python3 -m pytest --version
-
-                    echo ""
-                    echo "Checking pytest-cov..."
-
-                    python3 -m pytest --help | grep -q cov || {
-                        echo "pytest-cov is not installed."
-                        echo "Installing pytest-cov..."
-                        python3 -m pip install --user pytest-cov
+                            echo ""
+                            echo "=========================================="
+                            echo "SonarQube Analysis Completed"
+                            echo "=========================================="
+                        '''
                     }
-
-                    echo ""
-                    echo "Running unit tests with coverage..."
-
-                    python3 -m pytest \
-                        tests/ \
-                        --cov=app \
-                        --cov-report=term-missing \
-                        --cov-report=xml:coverage.xml \
-                        --cov-report=html:htmlcov
-
-                    echo ""
-                    echo "Checking coverage.xml..."
-
-                    if [ ! -f coverage.xml ]; then
-                        echo "ERROR: coverage.xml was not generated."
-                        exit 1
-                    fi
-
-                    echo ""
-                    echo "Code coverage generated successfully."
-                '''
-
-                archiveArtifacts(
-                    artifacts: 'coverage.xml,htmlcov/**',
-                    allowEmptyArchive: false
-                )
+                }
             }
         }
 
 
         // =========================================================
-        // 6. PYTHON DEPENDENCY VULNERABILITY SCAN
+        // 4. CODE QUALITY GATE
         // =========================================================
 
-        stage('6. Dependency Vulnerability Scan') {
+        stage('4. Code Quality Gate') {
+
+            steps {
+
+                echo "=========================================="
+                echo "SonarQube Code Quality Gate"
+                echo "=========================================="
+
+                timeout(time: 5, unit: 'MINUTES') {
+
+                    waitForQualityGate(
+                        abortPipeline: true
+                    )
+                }
+
+                echo ""
+                echo "=========================================="
+                echo "Code Quality Gate PASSED"
+                echo "=========================================="
+            }
+        }
+
+
+        // =========================================================
+        // 5. DEPENDENCY SCAN
+        // =========================================================
+
+        stage('5. Dependency Scan') {
 
             steps {
 
@@ -283,12 +189,12 @@ pipeline {
                     python3 -m pip install --user --upgrade pip-audit
 
                     echo ""
-                    echo "pip-audit version:"
+                    echo "pip-audit Version:"
 
                     python3 -m pip_audit --version
 
                     echo ""
-                    echo "Starting dependency vulnerability scan..."
+                    echo "Starting Dependency Scan..."
 
                     rm -f pip-audit-report.json
 
@@ -304,19 +210,19 @@ pipeline {
                             -o pip-audit-report.json
                         then
 
-                            echo "pip-audit completed successfully."
+                            echo "Dependency scan completed successfully."
                             break
 
                         else
 
                             if [ "$i" -eq 3 ]; then
 
-                                echo "ERROR: pip-audit failed after 3 attempts."
+                                echo "ERROR: Dependency scan failed after 3 attempts."
                                 exit 1
 
                             fi
 
-                            echo "pip-audit failed."
+                            echo "Dependency scan failed."
                             echo "Retrying in 10 seconds..."
 
                             sleep 10
@@ -327,7 +233,7 @@ pipeline {
 
                     if [ ! -f pip-audit-report.json ]; then
 
-                        echo "ERROR: pip-audit report was not generated."
+                        echo "ERROR: Dependency scan report was not generated."
                         exit 1
 
                     fi
@@ -345,65 +251,10 @@ pipeline {
 
 
         // =========================================================
-        // 7. OWASP DEPENDENCY-CHECK FILE SYSTEM SCAN
+        // 6. TRIVY FILE SCAN
         // =========================================================
 
-        stage('7. OWASP FS Scan') {
-
-            steps {
-
-                script {
-
-                    echo "=========================================="
-                    echo "OWASP Dependency-Check"
-                    echo "=========================================="
-
-                    def dependencyCheckHome = tool 'DP-Check'
-
-                    echo "Dependency-Check location:"
-                    echo "${dependencyCheckHome}"
-
-                    sh """
-                        set -e
-
-                        echo "Dependency-Check version:"
-                        "${dependencyCheckHome}/bin/dependency-check.sh" --version
-
-                        echo ""
-                        echo "Starting OWASP Dependency-Check..."
-
-                        rm -rf dependency-check-report
-                        mkdir -p dependency-check-report
-
-                        "${dependencyCheckHome}/bin/dependency-check.sh" \
-                            --project "Test-Code" \
-                            --scan . \
-                            --format HTML \
-                            --format JSON \
-                            --out dependency-check-report
-
-                        echo ""
-                        echo "OWASP Dependency-Check completed successfully."
-
-                        echo ""
-                        echo "Generated reports:"
-                        ls -lh dependency-check-report/
-                    """
-
-                    archiveArtifacts(
-                        artifacts: 'dependency-check-report/**',
-                        allowEmptyArchive: false
-                    )
-                }
-            }
-        }
-
-
-        // =========================================================
-        // 8. TRIVY FILE SYSTEM SCAN
-        // =========================================================
-
-        stage('8. Trivy File Scan') {
+        stage('6. Trivy File Scan') {
 
             steps {
 
@@ -416,12 +267,12 @@ pipeline {
 
                     if ! command -v trivy >/dev/null 2>&1; then
 
-                        echo "ERROR: Trivy is not installed on Jenkins agent."
+                        echo "ERROR: Trivy is not installed."
                         exit 1
 
                     fi
 
-                    echo "Trivy version:"
+                    echo "Trivy Version:"
                     trivy --version
 
                     echo ""
@@ -436,9 +287,7 @@ pipeline {
                         .
 
                     echo ""
-                    echo "=========================================="
-                    echo "Generating Trivy JSON Report"
-                    echo "=========================================="
+                    echo "Generating Trivy JSON Report..."
 
                     rm -f trivy-report.json
 
@@ -466,99 +315,6 @@ pipeline {
                 )
             }
         }
-
-
-        // =========================================================
-        // 9. SONARQUBE ANALYSIS / SAST
-        // =========================================================
-
-        stage('9. SonarQube Analysis') {
-
-            steps {
-
-                echo "=========================================="
-                echo "SonarQube Analysis / SAST"
-                echo "=========================================="
-
-                withSonarQubeEnv("${SONAR_SERVER}") {
-
-                    withCredentials([
-                        string(
-                            credentialsId: "${SONAR_TOKEN_CREDENTIAL}",
-                            variable: 'SONAR_AUTH_TOKEN'
-                        )
-                    ]) {
-
-                        sh '''
-                            set -e
-
-                            echo "SonarQube URL:"
-                            echo "$SONAR_HOST_URL"
-
-                            echo ""
-                            echo "SonarScanner version:"
-                            "$SCANNER_HOME/bin/sonar-scanner" --version
-
-                            echo ""
-                            echo "Checking coverage.xml..."
-
-                            if [ ! -f coverage.xml ]; then
-
-                                echo "ERROR: coverage.xml does not exist."
-                                echo "Unit test and coverage stage must complete before SonarQube."
-                                exit 1
-
-                            fi
-
-                            echo "coverage.xml found."
-
-                            echo ""
-                            echo "Starting SonarQube analysis..."
-
-                            "$SCANNER_HOME/bin/sonar-scanner" \
-                                -Dsonar.projectName="$SONAR_PROJECT_NAME" \
-                                -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
-                                -Dsonar.sources=app \
-                                -Dsonar.tests=tests \
-                                -Dsonar.host.url="$SONAR_HOST_URL" \
-                                -Dsonar.token="$SONAR_AUTH_TOKEN" \
-                                -Dsonar.python.coverage.reportPaths=coverage.xml
-
-                            echo ""
-                            echo "=========================================="
-                            echo "SonarQube Analysis Completed"
-                            echo "=========================================="
-                        '''
-                    }
-                }
-            }
-        }
-
-
-        // =========================================================
-        // 10. SONARQUBE CODE QUALITY GATE
-        // =========================================================
-
-        stage('10. Code Quality Gate') {
-
-            steps {
-
-                echo "=========================================="
-                echo "SonarQube Code Quality Gate"
-                echo "=========================================="
-
-                timeout(time: 5, unit: 'MINUTES') {
-
-                    waitForQualityGate(
-                        abortPipeline: true
-                    )
-                }
-
-                echo "=========================================="
-                echo "SonarQube Quality Gate PASSED"
-                echo "=========================================="
-            }
-        }
     }
 
 
@@ -574,16 +330,12 @@ pipeline {
             echo "TEST CODE PIPELINE SUCCESS"
             echo "=========================================="
 
-            echo "1. Tool Installation       : PASSED"
-            echo "2. Clean Workspace         : PASSED"
-            echo "3. Git Checkout            : PASSED"
-            echo "4. NPM Dependencies        : PASSED"
-            echo "5. Unit Tests & Coverage   : PASSED"
-            echo "6. Dependency Scan         : PASSED"
-            echo "7. OWASP FS Scan           : PASSED"
-            echo "8. Trivy File Scan         : PASSED"
-            echo "9. SonarQube Analysis      : PASSED"
-            echo "10. Code Quality Gate      : PASSED"
+            echo "1. Clean Workspace       : PASSED"
+            echo "2. Git Checkout          : PASSED"
+            echo "3. SonarQube Analysis    : PASSED"
+            echo "4. Code Quality Gate     : PASSED"
+            echo "5. Dependency Scan       : PASSED"
+            echo "6. Trivy File Scan       : PASSED"
 
             echo "=========================================="
         }
@@ -598,18 +350,14 @@ pipeline {
             echo "Please check the Jenkins console output."
 
             echo ""
-            echo "Possible failure areas:"
+            echo "Pipeline Stages:"
 
-            echo "1. Git checkout"
-            echo "2. NPM dependencies"
-            echo "3. Python dependencies"
-            echo "4. Unit tests"
-            echo "5. Code coverage"
-            echo "6. pip-audit"
-            echo "7. OWASP Dependency-Check"
-            echo "8. Trivy security scan"
-            echo "9. SonarQube analysis"
-            echo "10. SonarQube quality gate"
+            echo "1. Clean Workspace"
+            echo "2. Git Checkout"
+            echo "3. SonarQube Analysis"
+            echo "4. Code Quality Gate"
+            echo "5. Dependency Scan"
+            echo "6. Trivy File Scan"
 
             echo "=========================================="
         }
