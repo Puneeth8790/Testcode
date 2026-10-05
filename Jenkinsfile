@@ -14,11 +14,12 @@ pipeline {
     }
 
     environment {
+
         REPO_URL = "https://github.com/Puneeth8790/Testcode.git"
         TARGET_BRANCH = "feature"
 
+        // SonarQube
         SCANNER_HOME = tool 'sonar-scanner'
-
         SONAR_SERVER = "sonar-server"
         SONAR_TOKEN_CREDENTIAL = "sonar-test"
 
@@ -28,8 +29,13 @@ pipeline {
 
     stages {
 
+        // =========================================================
+        // 1. CHECKOUT
+        // =========================================================
+
         stage('1. GitHub Checkout') {
             steps {
+
                 echo "=========================================="
                 echo "Checking out Test Code"
                 echo "=========================================="
@@ -41,22 +47,34 @@ pipeline {
             }
         }
 
+
+        // =========================================================
+        // 2. UNIT TEST + CODE COVERAGE
+        // =========================================================
+
         stage('2. Unit Test & Code Coverage') {
             steps {
+
                 sh '''
                     set -e
 
-                    echo "Python version:"
+                    echo "=========================================="
+                    echo "Python Environment"
+                    echo "=========================================="
+
                     python3 --version
 
-                    echo "Installing dependencies..."
+                    echo "Installing Python dependencies..."
 
                     python3 -m pip install --user -r requirements.txt
 
                     echo "Checking FastAPI..."
+
                     python3 -c "import fastapi; print('FastAPI installed successfully')"
 
-                    echo "Running unit tests..."
+                    echo "=========================================="
+                    echo "Running Unit Tests"
+                    echo "=========================================="
 
                     python3 -m pytest \
                         tests/ \
@@ -65,7 +83,9 @@ pipeline {
                         --cov-report=xml:coverage.xml \
                         --cov-report=html:htmlcov
 
-                    echo "Checking coverage.xml..."
+                    echo "=========================================="
+                    echo "Checking coverage.xml"
+                    echo "=========================================="
 
                     if [ ! -f coverage.xml ]; then
                         echo "ERROR: coverage.xml was not generated"
@@ -82,7 +102,119 @@ pipeline {
             }
         }
 
-        stage('3. SonarQube Analysis - Test Code') {
+
+        // =========================================================
+        // 3. DEPENDENCY VULNERABILITY SCAN
+        // =========================================================
+
+        stage('3. Dependency Vulnerability Scan') {
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "=========================================="
+                    echo "Python Dependency Vulnerability Scan"
+                    echo "=========================================="
+
+                    echo "Installing pip-audit..."
+
+                    python3 -m pip install --user pip-audit
+
+                    echo "Running pip-audit..."
+
+                    python3 -m pip_audit \
+                        -r requirements.txt \
+                        -f json \
+                        -o pip-audit-report.json
+
+                    echo "=========================================="
+                    echo "Dependency scan completed"
+                    echo "=========================================="
+
+                    if [ ! -f pip-audit-report.json ]; then
+                        echo "ERROR: pip-audit report was not generated"
+                        exit 1
+                    fi
+
+                    echo "pip-audit report generated successfully"
+                '''
+
+                archiveArtifacts(
+                    artifacts: 'pip-audit-report.json',
+                    allowEmptyArchive: true
+                )
+            }
+        }
+
+
+        // =========================================================
+        // 4. TRIVY SECURITY SCAN
+        // =========================================================
+
+        stage('4. Trivy Security Scan') {
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "=========================================="
+                    echo "Trivy Security Scan"
+                    echo "=========================================="
+
+                    if ! command -v trivy >/dev/null 2>&1; then
+                        echo "ERROR: Trivy is not installed on Jenkins agent."
+                        echo "Please install Trivy on the Jenkins agent."
+                        exit 1
+                    fi
+
+                    echo "Trivy version:"
+                    trivy --version
+
+                    echo "=========================================="
+                    echo "Scanning Application Filesystem"
+                    echo "=========================================="
+
+                    trivy fs \
+                        --scanners vuln,secret,misconfig \
+                        --severity HIGH,CRITICAL \
+                        --format table \
+                        .
+
+                    echo "=========================================="
+                    echo "Generating JSON Security Report"
+                    echo "=========================================="
+
+                    trivy fs \
+                        --scanners vuln,secret,misconfig \
+                        --severity HIGH,CRITICAL \
+                        --format json \
+                        --output trivy-report.json \
+                        .
+
+                    echo "=========================================="
+                    echo "Trivy scan completed"
+                    echo "=========================================="
+
+                    if [ ! -f trivy-report.json ]; then
+                        echo "ERROR: Trivy report was not generated"
+                        exit 1
+                    fi
+                '''
+
+                archiveArtifacts(
+                    artifacts: 'trivy-report.json',
+                    allowEmptyArchive: true
+                )
+            }
+        }
+
+
+        // =========================================================
+        // 5. SONARQUBE ANALYSIS
+        // =========================================================
+
+        stage('5. SonarQube Analysis - Test Code') {
             steps {
 
                 withSonarQubeEnv("${SONAR_SERVER}") {
@@ -118,9 +250,6 @@ pipeline {
 
                             echo "Starting SonarQube scan..."
 
-                            # NOTE: sonar.branch.name is NOT used because it requires
-                            # SonarQube Developer Edition or above. Community Edition
-                            # analyzes the checked-out branch as the main branch.
                             "$SCANNER_HOME/bin/sonar-scanner" \
                                 -Dsonar.projectName="$SONAR_PROJECT_NAME" \
                                 -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
@@ -139,7 +268,12 @@ pipeline {
             }
         }
 
-        stage('4. SonarQube Quality Gate') {
+
+        // =========================================================
+        // 6. SONARQUBE QUALITY GATE
+        // =========================================================
+
+        stage('6. SonarQube Quality Gate') {
             steps {
 
                 timeout(time: 5, unit: 'MINUTES') {
@@ -152,19 +286,36 @@ pipeline {
         }
     }
 
+
+    // =============================================================
+    // POST BUILD
+    // =============================================================
+
     post {
 
         success {
+
             echo "=========================================="
             echo "Test Code Pipeline SUCCESS"
             echo "=========================================="
+
+            echo "Security scans completed."
+            echo "SonarQube Quality Gate passed."
+            echo "Unit tests and code coverage completed."
         }
 
         failure {
+
             echo "=========================================="
             echo "Test Code Pipeline FAILED"
-            echo "Check Jenkins console output"
             echo "=========================================="
+
+            echo "Check Jenkins console output."
+            echo "Review:"
+            echo "1. Unit test results"
+            echo "2. pip-audit dependency vulnerabilities"
+            echo "3. Trivy security vulnerabilities"
+            echo "4. SonarQube Quality Gate"
         }
     }
 }
