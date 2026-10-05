@@ -13,12 +13,6 @@ pipeline {
         timeout(time: 30, unit: 'MINUTES')
     }
 
-    tools {
-        // Jenkins Global Tool Configuration
-        // Make sure this tool name exists in Jenkins
-        jdk 'jdk'
-    }
-
     environment {
 
         REPO_URL = "https://github.com/Puneeth8790/Testcode.git"
