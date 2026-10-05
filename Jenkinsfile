@@ -103,49 +103,72 @@ pipeline {
         }
 
 
-        // =========================================================
-        // 3. DEPENDENCY VULNERABILITY SCAN
-        // =========================================================
+       stage('3. Dependency Vulnerability Scan') {
+    steps {
+        sh '''
+            set -e
 
-        stage('3. Dependency Vulnerability Scan') {
-            steps {
+            echo "=========================================="
+            echo "Python Dependency Vulnerability Scan"
+            echo "=========================================="
 
-                sh '''
-                    set -e
+            echo "Installing pip-audit..."
 
-                    echo "=========================================="
-                    echo "Python Dependency Vulnerability Scan"
-                    echo "=========================================="
+            python3 -m pip install --user --upgrade pip-audit
 
-                    echo "Installing pip-audit..."
+            echo "Checking pip-audit version..."
 
-                    python3 -m pip install --user pip-audit
+            python3 -m pip_audit --version
 
-                    echo "Running pip-audit..."
+            echo "Running dependency vulnerability scan..."
 
-                    python3 -m pip_audit \
-                        -r requirements.txt \
-                        -f json \
-                        -o pip-audit-report.json
+            # Retry the scan because the vulnerability
+            # database is queried over the internet.
+            for i in 1 2 3; do
 
-                    echo "=========================================="
-                    echo "Dependency scan completed"
-                    echo "=========================================="
+                echo "pip-audit attempt: $i"
 
-                    if [ ! -f pip-audit-report.json ]; then
-                        echo "ERROR: pip-audit report was not generated"
+                if python3 -m pip_audit \
+                    -r requirements.txt \
+                    -f json \
+                    -o pip-audit-report.json; then
+
+                    echo "pip-audit completed successfully"
+                    break
+
+                else
+
+                    if [ "$i" -eq 3 ]; then
+                        echo "ERROR: pip-audit failed after 3 attempts"
                         exit 1
                     fi
 
-                    echo "pip-audit report generated successfully"
-                '''
+                    echo "pip-audit failed. Retrying in 10 seconds..."
+                    sleep 10
 
-                archiveArtifacts(
-                    artifacts: 'pip-audit-report.json',
-                    allowEmptyArchive: true
-                )
-            }
-        }
+                fi
+
+            done
+
+            echo "=========================================="
+            echo "Dependency Vulnerability Scan Completed"
+            echo "=========================================="
+
+            if [ ! -f pip-audit-report.json ]; then
+                echo "ERROR: pip-audit report was not generated"
+                exit 1
+            fi
+
+            echo "Security report generated:"
+            ls -lh pip-audit-report.json
+        '''
+
+        archiveArtifacts(
+            artifacts: 'pip-audit-report.json',
+            allowEmptyArchive: false
+        )
+    }
+}
 
 
         // =========================================================
