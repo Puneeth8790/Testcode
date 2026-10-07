@@ -10,7 +10,7 @@ pipeline {
         timestamps()
         disableConcurrentBuilds()
         buildDiscarder(logRotator(numToKeepStr: '20'))
-        timeout(time: 45, unit: 'MINUTES')
+        timeout(time: 60, unit: 'MINUTES')
     }
 
     environment {
@@ -27,17 +27,35 @@ pipeline {
         // =========================================================
 
         SCANNER_HOME = tool 'sonar-scanner'
-
         SONAR_SERVER = "sonar-server"
-
         SONAR_TOKEN_CREDENTIAL = "sonar-test"
 
         SONAR_PROJECT_NAME = "Test Code"
         SONAR_PROJECT_KEY = "Test-Code"
+
+        // =========================================================
+        // DOCKER
+        // =========================================================
+
+        DOCKER_IMAGE = "testdemo"
+        DOCKER_TAG = "v1"
+
+        // Jenkins credential ID
+        DOCKER_CREDENTIALS = "dockerhub-credentials"
+
+        // Docker Hub repository
+        // Example: Puneeth8790/testdemo:v1
+        DOCKER_HUB_IMAGE = "Puneeth8790/testdemo:v1"
+
+        // Container
+        CONTAINER_NAME = "TestDemo"
+        HOST_PORT = "8000"
+        CONTAINER_PORT = "8000"
     }
 
 
     stages {
+
 
         // =========================================================
         // 1. CLEAN WORKSPACE
@@ -251,115 +269,365 @@ pipeline {
 
 
         // =========================================================
-        // 6. TRIVY FILE SCAN
+        // 6. DOCKER BUILD
         // =========================================================
 
-        stage('6. Trivy File Scan') {
+        stage('6. Docker Build') {
 
             steps {
 
                 echo "=========================================="
-                echo "Trivy Filesystem Security Scan"
+                echo "Docker Image Build"
                 echo "=========================================="
 
                 sh '''
                     set -e
 
-                    if ! command -v trivy >/dev/null 2>&1; then
-
-                        echo "ERROR: Trivy is not installed."
-                        exit 1
-
-                    fi
-
-                    echo "Trivy Version:"
-                    trivy --version
+                    echo "Docker Version:"
+                    docker --version
 
                     echo ""
-                    echo "=========================================="
-                    echo "Trivy Vulnerability / Secret / Misconfiguration Scan"
-                    echo "=========================================="
+                    echo "Building Docker Image..."
 
-                    trivy fs \
-                        --scanners vuln,secret,misconfig \
-                        --severity HIGH,CRITICAL \
-                        --format table \
+                    docker build \
+                        -t "${DOCKER_IMAGE}:${DOCKER_TAG}" \
                         .
 
                     echo ""
-                    echo "Generating Trivy JSON Report..."
-
-                    rm -f trivy-report.json
-
-                    trivy fs \
-                        --scanners vuln,secret,misconfig \
-                        --severity HIGH,CRITICAL \
-                        --format json \
-                        --output trivy-report.json \
-                        .
-
-                    if [ ! -f trivy-report.json ]; then
-
-                        echo "ERROR: Trivy report was not generated."
-                        exit 1
-
-                    fi
+                    echo "Docker Image Build Completed."
 
                     echo ""
-                    echo "Trivy filesystem scan completed."
+                    echo "Docker Image:"
+                    docker images | grep "${DOCKER_IMAGE}" || true
                 '''
+            }
+        }
 
-                archiveArtifacts(
-                    artifacts: 'trivy-report.json',
-                    allowEmptyArchive: false
-                )
+
+        // =========================================================
+        // 7. DOCKER HUB LOGIN
+        // =========================================================
+
+        stage('7. Docker Hub Login') {
+
+            steps {
+
+                echo "=========================================="
+                echo "Docker Hub Login"
+                echo "=========================================="
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: "${DOCKER_CREDENTIALS}",
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+                ]) {
+
+                    sh '''
+                        set -e
+
+                        echo "Logging in to Docker Hub..."
+
+                        echo "$DOCKER_PASSWORD" | docker login \
+                            -u "$DOCKER_USERNAME" \
+                            --password-stdin
+
+                        echo "Docker Hub Login Successful."
+                    '''
+                }
+            }
+        }
+
+
+        // =========================================================
+        // 8. DOCKER TAG & PUSH
+        // =========================================================
+
+        stage('8. Docker Push') {
+
+            steps {
+
+                echo "=========================================="
+                echo "Docker Image Tag & Push"
+                echo "=========================================="
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: "${DOCKER_CREDENTIALS}",
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+                ]) {
+
+                    sh '''
+                        set -e
+
+                        echo "Docker Hub Username:"
+                        echo "$DOCKER_USERNAME"
+
+                        echo ""
+                        echo "Tagging Docker Image..."
+
+                        docker tag \
+                            "${DOCKER_IMAGE}:${DOCKER_TAG}" \
+                            "$DOCKER_USERNAME/${DOCKER_IMAGE}:${DOCKER_TAG}"
+
+                        echo ""
+                        echo "Docker Image Push..."
+
+                        docker push \
+                            "$DOCKER_USERNAME/${DOCKER_IMAGE}:${DOCKER_TAG}"
+
+                        echo ""
+                        echo "Docker Image Push Completed."
+                    '''
+                }
+            }
+        }
+
+
+        // =========================================================
+        // 9. DOCKER PULL
+        // =========================================================
+
+        stage('9. Docker Pull') {
+
+            steps {
+
+                echo "=========================================="
+                echo "Docker Image Pull"
+                echo "=========================================="
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: "${DOCKER_CREDENTIALS}",
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+                ]) {
+
+                    sh '''
+                        set -e
+
+                        echo "Removing local Docker Hub image..."
+
+                        docker rmi \
+                            "$DOCKER_USERNAME/${DOCKER_IMAGE}:${DOCKER_TAG}" \
+                            || true
+
+                        echo ""
+                        echo "Pulling Docker Image from Docker Hub..."
+
+                        docker pull \
+                            "$DOCKER_USERNAME/${DOCKER_IMAGE}:${DOCKER_TAG}"
+
+                        echo ""
+                        echo "Docker Image Pull Completed."
+
+                        echo ""
+                        echo "Pulled Image:"
+
+                        docker images | grep "${DOCKER_IMAGE}" || true
+                    '''
+                }
+            }
+        }
+
+
+        // =========================================================
+        // 10. TRIVY DOCKER IMAGE SCAN
+        // =========================================================
+
+        stage('10. Trivy Docker Image Scan') {
+
+            steps {
+
+                echo "=========================================="
+                echo "Trivy Docker Image Security Scan"
+                echo "=========================================="
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: "${DOCKER_CREDENTIALS}",
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+                ]) {
+
+                    sh '''
+                        set -e
+
+                        echo "Trivy Version:"
+                        trivy --version
+
+                        echo ""
+                        echo "=========================================="
+                        echo "Scanning Docker Image"
+                        echo "=========================================="
+
+                        trivy image \
+                            --severity HIGH,CRITICAL \
+                            --format table \
+                            "$DOCKER_USERNAME/${DOCKER_IMAGE}:${DOCKER_TAG}"
+
+                        echo ""
+                        echo "=========================================="
+                        echo "Generating Trivy JSON Report"
+                        echo "=========================================="
+
+                        rm -f trivy-image-report.json
+
+                        trivy image \
+                            --severity HIGH,CRITICAL \
+                            --format json \
+                            --output trivy-image-report.json \
+                            "$DOCKER_USERNAME/${DOCKER_IMAGE}:${DOCKER_TAG}"
+
+                        if [ ! -f trivy-image-report.json ]; then
+
+                            echo "ERROR: Trivy image report was not generated."
+                            exit 1
+
+                        fi
+
+                        echo ""
+                        echo "Trivy Docker Image Scan Completed."
+                    '''
+
+                    archiveArtifacts(
+                        artifacts: 'trivy-image-report.json',
+                        allowEmptyArchive: false
+                    )
+                }
+            }
+        }
+
+
+        // =========================================================
+        // 11. DOCKER RUN
+        // =========================================================
+
+        stage('11. Docker Run') {
+
+            steps {
+
+                echo "=========================================="
+                echo "Docker Container Deployment"
+                echo "=========================================="
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: "${DOCKER_CREDENTIALS}",
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+                ]) {
+
+                    sh '''
+                        set -e
+
+                        echo "Stopping existing container..."
+
+                        docker stop "${CONTAINER_NAME}" || true
+
+                        echo ""
+                        echo "Removing existing container..."
+
+                        docker rm "${CONTAINER_NAME}" || true
+
+                        echo ""
+                        echo "Starting Docker Container..."
+
+                        docker run -d \
+                            --name "${CONTAINER_NAME}" \
+                            -p "${HOST_PORT}:${CONTAINER_PORT}" \
+                            "$DOCKER_USERNAME/${DOCKER_IMAGE}:${DOCKER_TAG}"
+
+                        echo ""
+                        echo "Docker Container Started Successfully."
+
+                        echo ""
+                        echo "Container Status:"
+
+                        docker ps \
+                            --filter "name=${CONTAINER_NAME}"
+
+                        echo ""
+                        echo "Waiting for application to start..."
+
+                        sleep 10
+
+                        echo ""
+                        echo "Container Logs:"
+
+                        docker logs \
+                            --tail 50 \
+                            "${CONTAINER_NAME}"
+
+                        echo ""
+                        echo "=========================================="
+                        echo "Docker Deployment Completed"
+                        echo "=========================================="
+                    '''
+                }
+            }
+        }
+
+
+        // =========================================================
+        // 12. DEPLOYMENT VERIFICATION
+        // =========================================================
+
+        stage('12. Deployment Verification') {
+
+            steps {
+
+                echo "=========================================="
+                echo "Deployment Verification"
+                echo "=========================================="
+
+                sh '''
+                    set -e
+
+                    echo "Checking Docker Container..."
+
+                    if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+
+                        echo "Container ${CONTAINER_NAME} is RUNNING."
+
+                    else
+
+                        echo "ERROR: Container ${CONTAINER_NAME} is NOT running."
+                        echo ""
+                        echo "Container Logs:"
+                        docker logs "${CONTAINER_NAME}" || true
+
+                        exit 1
+
+                    fi
+
+                    echo ""
+                    echo "Checking Port ${HOST_PORT}..."
+
+                    if command -v curl >/dev/null 2>&1; then
+
+                        curl -f \
+                            --max-time 10 \
+                            "http://localhost:${HOST_PORT}" \
+                            || echo "Application endpoint check returned non-success."
+
+                    else
+
+                        echo "curl is not installed. Skipping HTTP check."
+
+                    fi
+
+                    echo ""
+                    echo "=========================================="
+                    echo "Deployment Verification Completed"
+                    echo "=========================================="
+                '''
             }
         }
     }
-
-
-    // =============================================================
-    // POST BUILD
-    // =============================================================
-
-    post {
-
-        success {
-
-            echo "=========================================="
-            echo "TEST CODE PIPELINE SUCCESS"
-            echo "=========================================="
-
-            echo "1. Clean Workspace       : PASSED"
-            echo "2. Git Checkout          : PASSED"
-            echo "3. SonarQube Analysis    : PASSED"
-            echo "4. Code Quality Gate     : PASSED"
-            echo "5. Dependency Scan       : PASSED"
-            echo "6. Trivy File Scan       : PASSED"
-
-            echo "=========================================="
-        }
-
-
-        failure {
-
-            echo "=========================================="
-            echo "TEST CODE PIPELINE FAILED"
-            echo "=========================================="
-
-            echo "Please check the Jenkins console output."
-
-            echo ""
-            echo "Pipeline Stages:"
-
-            echo "1. Clean Workspace"
-            echo "2. Git Checkout"
-            echo "3. SonarQube Analysis"
-            echo "4. Code Quality Gate"
-            echo "5. Dependency Scan"
-            echo "6. Trivy File Scan"
-
-            echo "=========================================="
-        }
-    }
-}
