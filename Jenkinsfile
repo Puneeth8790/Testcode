@@ -574,7 +574,37 @@ pipeline {
             }
         }
 
-        stage('12. Deployment Verification') {
+        stage('12. Prometheus Metrics Monitoring') {
+    steps {
+        echo 'Checking Prometheus monitoring'
+
+        sh '''
+            set -e
+
+            PROMETHEUS_URL="http://localhost:9090"
+
+            echo "Checking Prometheus health..."
+            curl -fsS --max-time 10 \
+                "$PROMETHEUS_URL/-/healthy"
+
+            echo ""
+            echo "Checking Prometheus readiness..."
+            curl -fsS --max-time 10 \
+                "$PROMETHEUS_URL/-/ready"
+
+            echo ""
+            echo "Checking Prometheus query API..."
+            curl -fsS --get \
+                --data-urlencode 'query=up' \
+                "$PROMETHEUS_URL/api/v1/query"
+
+            echo ""
+            echo "Prometheus checks completed successfully."
+        '''
+    }
+}
+
+        stage('13. Deployment Verification') {
 
             steps {
 
