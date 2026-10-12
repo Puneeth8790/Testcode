@@ -230,8 +230,14 @@ pipeline {
             }
         }
 
-        stage('11. Trivy Docker Image Scan') {
+         stage('11. Trivy Docker Image Scan') {
+
             steps {
+
+                echo "=========================================="
+                echo "Trivy Docker Image Security Scan"
+                echo "=========================================="
+
                 withCredentials([
                     usernamePassword(
                         credentialsId: "${DOCKER_CREDENTIALS}",
@@ -239,38 +245,56 @@ pipeline {
                         passwordVariable: 'DOCKER_PASSWORD'
                     )
                 ]) {
+
                     sh '''
-                        set -eu
+                        set -e
+
+                        echo "Trivy Version:"
                         trivy --version
-                        REMOTE_IMAGE="$DOCKER_USERNAME/$DOCKER_IMAGE:$DOCKER_TAG"
+
+                        echo ""
+                        echo "=========================================="
+                        echo "Scanning Docker Image"
+                        echo "=========================================="
+
+                        trivy image \
+                            --severity HIGH,CRITICAL \
+                            --format table \
+                            "$DOCKER_USERNAME/${DOCKER_IMAGE}:${DOCKER_TAG}"
+
+                        echo ""
+                        echo "=========================================="
+                        echo "Generating Trivy JSON Report"
+                        echo "=========================================="
+
                         rm -f trivy-image-report.json
 
-                        trivy image \\
-                            --severity HIGH,CRITICAL \\
-                            --format json \\
-                            --output trivy-image-report.json \\
-                            "$REMOTE_IMAGE"
+                        trivy image \
+                            --severity HIGH,CRITICAL \
+                            --format json \
+                            --output trivy-image-report.json \
+                            "$DOCKER_USERNAME/${DOCKER_IMAGE}:${DOCKER_TAG}"
 
-                        test -s trivy-image-report.json
+                        if [ ! -f trivy-image-report.json ]; then
 
-                        # Fail this stage if HIGH or CRITICAL vulnerabilities are found.
-                        trivy image \\
-                            --severity HIGH,CRITICAL \\
-                            --exit-code 1 \\
-                            --format table \\
-                            "$REMOTE_IMAGE"
+                            echo "ERROR: Trivy image report was not generated."
+                            exit 1
+
+                        fi
+
+                        echo ""
+                        echo "Trivy Docker Image Scan Completed."
                     '''
-                }
-            }
-            post {
-                always {
+
                     archiveArtifacts(
                         artifacts: 'trivy-image-report.json',
-                        allowEmptyArchive: true
+                        allowEmptyArchive: false
                     )
                 }
             }
         }
+
+
 
         stage('12. Docker Run / Deploy') {
             steps {
