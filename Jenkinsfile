@@ -164,7 +164,43 @@ pipeline {
         // 4. CODE QUALITY GATE
         // =========================================================
 
-        stage('4. Code Quality Gate') {
+        
+stage('4. Unit Tests and Code Coverage') {
+    steps {
+        sh '''
+            set -eu
+
+            echo "Python version:"
+            python3 --version
+
+            echo "Checking pip:"
+            python3 -m pip --version
+
+            test -f requirements.txt
+
+            echo "Installing dependencies..."
+            python3 -m pip install --user -r requirements.txt
+            python3 -m pip install --user pytest pytest-cov
+
+            echo "Running unit tests and generating coverage..."
+            python3 -m pytest tests/ \
+                --cov=app \
+                --cov-report=term-missing \
+                --cov-report=xml:coverage.xml \
+                --cov-report=html:htmlcov
+
+            test -s coverage.xml
+            echo "Coverage report generated successfully."
+        '''
+
+        archiveArtifacts(
+            artifacts: 'coverage.xml,htmlcov/**',
+            allowEmptyArchive: false
+        )
+    }
+}
+
+        stage('5. Code Quality Gate') {
 
             steps {
 
@@ -191,7 +227,7 @@ pipeline {
         // 5. DEPENDENCY SCAN
         // =========================================================
 
-        stage('5. Dependency Scan') {
+        stage('6. Dependency Scan') {
 
             steps {
 
@@ -272,7 +308,7 @@ pipeline {
         // 6. DOCKER BUILD
         // =========================================================
 
-        stage('6. Docker Build') {
+        stage('7. Docker Build') {
 
             steps {
 
@@ -308,7 +344,7 @@ pipeline {
         // 7. DOCKER HUB LOGIN
         // =========================================================
 
-        stage('7. Docker Hub Login') {
+        stage('8. Docker Hub Login') {
 
             steps {
 
@@ -344,7 +380,7 @@ pipeline {
         // 8. DOCKER TAG & PUSH
         // =========================================================
 
-        stage('8. Docker Push') {
+        stage('9. Docker Push') {
 
             steps {
 
@@ -391,7 +427,7 @@ pipeline {
         // 9. DOCKER PULL
         // =========================================================
 
-        stage('9. Docker Pull') {
+        stage('10. Docker Pull') {
 
             steps {
 
@@ -439,7 +475,7 @@ pipeline {
         // 10. TRIVY DOCKER IMAGE SCAN
         // =========================================================
 
-        stage('10. Trivy Docker Image Scan') {
+        stage('11. Trivy Docker Image Scan') {
 
             steps {
 
@@ -508,7 +544,7 @@ pipeline {
         // 11. DOCKER RUN
         // =========================================================
 
-        stage('11. Docker Run') {
+        stage('12. Docker Run') {
 
             steps {
 
@@ -574,7 +610,7 @@ pipeline {
             }
         }
 
-        stage('12. Prometheus Metrics Monitoring') {
+        stage('13. Prometheus Metrics Monitoring') {
     steps {
         echo 'Checking Prometheus monitoring'
 
@@ -604,7 +640,7 @@ pipeline {
     }
 }
 
-        stage('13. Deployment Verification') {
+        stage('14. Deployment Verification') {
 
             steps {
 
